@@ -1,34 +1,31 @@
-# pi-open-agents
+# pi-agents
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/andrea-tomassi/pi-open-agents/refs/heads/main/pi-open-agents-banner.png" alt="pi-open-agents" width="768">
-</p>
-
-[![npm version](https://img.shields.io/npm/v/pi-open-agents.svg)](https://www.npmjs.com/package/pi-open-agents)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![pi](https://img.shields.io/badge/pi-coding%20agent-blue)](https://pi.dev)
 
 Unified agent and subagent management for [pi](https://pi.dev), with [OpenCode](https://github.com/sst/opencode)-compatible agent definitions.
 
+Derived from [pi-open-agents](https://github.com/andrea-tomassi/pi-open-agents) by Andrea Tomassi (MIT).
+This copy makes a delegated agent's tool set independent of the delegating agent by default
+(see [Agent authority](#agent-authority-standalone-vs-inherit)); everything else is upstream.
+
 Replaces `pi-agent-mode` + `@johnnywu/pi-subagents` with one coherent plugin.
 
 > **Why pi?** Pi's minimalist core keeps system prompts under 1,000 tokens — making it exceptionally fast on local models and cheap on cloud APIs. pi-open-agents is built to leverage that minimalism. See [Pi vs OpenCode: Performance & Architecture](./PI-VS-OPencode.md) for a detailed comparison.
->
-> 🐑 **Herd your agents.** pi-open-agents + [Herdr](https://herdr.dev) runs a full team of coding agents — persistent workspaces, live agent awareness, control from one screen. **[Set up the stack in 5 commands →](./PI-WITH-HERDR.md)**
 
 ---
 
 ## Quick start
 
 ```bash
-pi install npm:pi-open-agents
+pi install git:github.com/fenlyin0420/pi-agents
 ```
 
-Remove old plugins from `~/.pi/agent/settings.json`:
+`~/.pi/agent/settings.json`:
 
 ```json
 {
-  "packages": ["npm:pi-open-agents"]
+  "packages": ["git:github.com/fenlyin0420/pi-agents"]
 }
 ```
 
@@ -93,7 +90,7 @@ here — or native in pi itself:
 |---|---|
 | `AGENTS.md` adoption — anthropics/claude-code#31005 👍336, openai/codex#12115 👍109 | ✅ Native in pi: `AGENTS.md`/`CLAUDE.md` discovery with `AGENTS.override.md` layering |
 | Agent Skills standard (`.agents/skills/`) — agentskills/agentskills#15 👍183 | ✅ Native in pi; shared agents from `.agents/` (#7 aligns to the dotagents layout) |
-| Tool restrictions that actually reach subagents — anthropics/claude-code#18950 👍70 | ✅ Since v0.1.14 via `--tools`; full **deny/ask inheritance** (effective-set ceiling + arg patterns) since v0.1.27 |
+| Tool restrictions that actually reach subagents — anthropics/claude-code#18950 👍70 | ✅ Since v0.1.14 via `--tools`; per-agent `authority: inherit` opts into deny/ask inheritance (default: standalone) |
 | Model selection per subagent / per call — sst/opencode#6651 👍71 | ✅ Per-agent `model:` + per-call `model:` override in `subagent()` (since v0.1.19) |
 | Reasoning effort per agent — Kilo-Org/kilocode#13105 👍8 | ✅ `thinking: off…xhigh` per agent, forwarded to the child process |
 | Delegation guards — Kilo-Org/kilocode#9985 | ✅ `allowedAgents` allowlist + `maxDepth` recursion limit |
@@ -181,9 +178,17 @@ active agent's rules *before it runs* — not just used to filter the toolset:
 > delegate anymore — apply warns you explicitly. No restrictions = everything
 > stays active, exactly as before.
 
-**Inheritance down the delegation chain (#8).** A subagent can never exceed
-the authority of the agent that delegated to it — in both directions of the
-rule language:
+**Agent authority (§8, redone in this copy).** A delegated agent's authority
+is declared by its own definition: `authority: standalone` (default) gives it
+exactly its own tool set and permission rules, whatever the delegating agent
+publishes; `authority: inherit` opts it into the parent ceiling below. The
+standalone default is what lets a planner that hides `edit`/`write` from
+itself delegate implementation to a worker that has them — with `inherit`,
+an authority ceiling flows down the chain and the worker would lose those
+tools too.
+
+With `authority: inherit`, the child can never exceed the delegating agent —
+in both directions of the rule language:
 
 - **Tool ceiling:** at delegation the parent's *live* tool set is snapshotted
   (`pi.getActiveTools()`), minus tools it blanket-`deny`s or blanket-`ask`s
@@ -263,7 +268,7 @@ will only get `read` and `edit` in the child process. Wildcard permissions
 ### OpenCode compatibility
 
 Your `.opencode/agent/` files work as-is. The `tools` map format is auto-converted
-to permission rules, and pi-specific fields (`thinking`, `maxDepth`, `allowedAgents`)
+to permission rules, and pi-specific fields (`thinking`, `authority`, `maxDepth`, `allowedAgents`)
 are simply ignored by OpenCode without breaking:
 
 ```yaml
@@ -314,6 +319,7 @@ permission:
 
 maxDepth: 5                             # subagent recursion limit
 allowedAgents: [explorer]               # restrict which subagents this can spawn
+authority: standalone                   # standalone | inherit (default: standalone)
 skills: security-audit, git-*           # per-agent skills with wildcards
 ---
 Your prompt goes here. This becomes the agent's system prompt.
@@ -456,3 +462,12 @@ See [ATTRIBUTION.md](./ATTRIBUTION.md) for details.
 ## License
 
 MIT
+
+---
+
+## Branches
+
+`main` mirrors [upstream](https://github.com/andrea-tomassi/pi-open-agents) verbatim;
+`dev` carries this copy's delta (standalone authority by default, repo identity).
+Install the delta with `git:github.com/fenlyin0420/pi-agents@dev`. To pick up upstream:
+fast-forward `main` from `upstream/main`, then merge `main` into `dev`.

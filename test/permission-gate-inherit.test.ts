@@ -11,6 +11,8 @@
  *   PI_OPEN_AGENTS_PARENT_RULES (enforced in-child, last-match-wins)
  * - transitively: the child's own getActiveTools() already reflects the CLI
  *   ceiling, so a grandchild cannot regain a tool removed upstream
+ * - `authority: inherit` opts a child back into all of the above; the default
+ *   (`standalone`) makes the child's own definition its whole authority
  *
  * Pinned: the five regression cases from the issue thread.
  */
@@ -43,6 +45,7 @@ const baseAgent: AgentDefinition = {
   disable: false,
   thinking: "off",
   systemPrompt: "replace",
+  authority: "inherit",
   maxDepth: 1,
   prompt: "You are a worker subagent.",
   source: "project",
@@ -221,4 +224,84 @@ run("#8 gate: inherited deny beats child's own allow (last-match composition)", 
   assert.equal(blocked.action, "deny");
   const fine = decideToolCall("edit", { file_path: "app.ts" }, merged);
   assert.equal(fine.action, "allow");
+});
+
+// ─── authority: standalone delegates past the parent's ceiling ──────────────
+
+type ToolDefinition = {
+  execute: (
+    callId: string,
+    params: Record<string, unknown>,
+    signal: undefined,
+    onUpdate: undefined,
+    ctx: { cwd: string },
+  ) => Promise<unknown>;
+};
+
+/**
+ * Delegate to `child` from a parent whose live tool set is `activeTools`,
+ * and return the ceiling/rules the tool hands to the runner.
+ */
+async function delegate(
+  child: AgentDefinition,
+  activeTools: string[],
+  parentPermission?: AgentDefinition["permission"],
+) {
+  const parent: AgentDefinition = {
+    ...baseAgent,
+    name: "parent",
+    mode: "primary",
+    permission: parentPermission,
+  };
+  const captured: { parentCeiling?: string[]; parentRules?: unknown } = {};
+  let tool: ToolDefinition | undefined;
+
+  toolMod!.registerSubagentTool(
+    {
+      registerTool: (definition: ToolDefinition) => {
+        tool = definition;
+      },
+      getActiveTools: () => activeTools,
+    } as never,
+    {
+      agents: [child],
+      agentDir: "/tmp/agent-dir",
+      getActiveAgent: () => parent,
+      env: {},
+      run: async (options: { parentCeiling?: string[]; parentRules?: unknown }) => {
+        captured.parentCeiling = options.parentCeiling;
+        captured.parentRules = options.parentRules;
+        return {
+          agent: child.name,
+          status: "done",
+          output: "ok",
+          tools: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0 },
+          startedAt: Date.now(),
+          elapsedMs: 0,
+          isError: false,
+          exitCode: 0,
+          stderr: "",
+        } as never;
+      },
+    } as never,
+  );
+
+  assert.ok(tool, "subagent tool should be registered");
+  await tool.execute("id", { agent: child.name, task: "t" }, undefined, undefined, { cwd: process.cwd() });
+  return captured;
+}
+
+run("#8 authority: standalone child is not capped by the parent's tool set", async () => {
+  const child: AgentDefinition = { ...baseAgent, authority: "standalone", tools: ["read", "edit"] };
+  const r = await delegate(child, ["read"], { "*": "allow", edit: "deny" });
+  assert.equal(r.parentCeiling, undefined, "no ceiling is applied");
+  assert.equal(r.parentRules, undefined, "no inherited rules are handed down");
+});
+
+run("#8 authority: inherit child is capped by the parent's tool set", async () => {
+  const child: AgentDefinition = { ...baseAgent, authority: "inherit", tools: ["read", "edit"] };
+  const r = await delegate(child, ["read"], { "*": "allow", edit: "deny" });
+  assert.deepEqual(r.parentCeiling, ["read"]);
+  assert.deepEqual(r.parentRules, [{ permission: "edit", pattern: "*", action: "deny" }]);
 });

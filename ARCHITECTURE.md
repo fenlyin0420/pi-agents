@@ -47,6 +47,7 @@ interface AgentDefinition {
   tools?: string[];                         // simple whitelist (fallback if no permission)
 
   // === Subagent controls ===
+  authority: AgentAuthority;               // standalone (default) | inherit
   maxDepth: number;                         // recursion depth limit
   allowedAgents?: string[];                 // which subagents this agent can spawn
   skills?: string[];                        // per-agent skill loading with wildcards
@@ -109,8 +110,9 @@ The permission engine is shared between both execution paths:
   call** via the runtime gate (`permission/gate.ts`, hooked on pi's
   `tool_call` event): allow = proceed, deny = block with a model-visible
   reason, ask = prompt the user (Allow once / Always this session / Deny)
-- **Subagent**: the parent's authority ceiling is handed down at delegation
-  time (issue #8, design by @Silentpartnercoding):
+- **Subagent**: authority comes from the child's own definition. With
+  `authority: inherit` (opt-in) the parent's ceiling is handed down at
+  delegation time (issue #8, design by @Silentpartnercoding):
   1. **Tool level** — the parent's live active set (`pi.getActiveTools()`)
      is snapshotted and stripped of tools blanket-denied *or* blanket-`ask`
      (`ask` is not authority: a headless child has no approval bridge).
@@ -126,6 +128,10 @@ The permission engine is shared between both execution paths:
      so a grandchild cannot regain any tool removed at an earlier hop.
      Hosts without `getActiveTools` simply skip the ceiling (own rules still
      enforce).
+
+  With the default `authority: standalone`, none of the above applies: the
+  child launches with exactly its own whitelist and rules. That is what makes
+  an edit-less planner able to delegate to a worker that edits.
 
 ### 5. Separate execution, shared definition
 

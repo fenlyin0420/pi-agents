@@ -20,6 +20,7 @@ const AGENT: AgentDefinition = {
   model: "test/model",
   thinking: "off",
   systemPrompt: "append",
+  authority: "standalone",
   maxDepth: 10,
   prompt: "",
   source: "global",

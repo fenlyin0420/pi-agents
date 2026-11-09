@@ -111,8 +111,15 @@ export default function piOpenAgents(pi: ExtensionAPI): void {
         if (childName) return manager.getAgent(childName);
         return manager.getActive();
       },
-      // #8: restrictive rules handed down by the delegating parent (env JSON).
-      inheritedRules: () => parentInheritedRules(process.env),
+      // #8: restrictive rules handed down by the delegating parent (env JSON),
+      // unless this agent declared `authority: standalone` — then its own
+      // rules are the whole authority.
+      inheritedRules: () => {
+        const childName = process.env.PI_OPEN_AGENTS_NAME;
+        const agent = childName ? manager.getAgent(childName) : manager.getActive();
+        if (agent?.authority === "standalone") return [];
+        return parentInheritedRules(process.env);
+      },
     });
 
     // Subagent child processes are fully configured by the executor via CLI flags

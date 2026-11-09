@@ -380,12 +380,23 @@ export function registerSubagentTool(
 
       // Permission inheritance (#8): snapshot the parent's live authority,
       // strip blanket deny/ask tools, and carry restrictive patterns (own +
-      // inherited) into the child's gate via env.
+      // inherited) into the child's gate via env. `authority: inherit` opts a
+      // child back into that ceiling; `standalone` (the default) makes its own
+      // definition the whole authority — so a parent that hides a tool from
+      // itself (e.g. a planner without edit) can still delegate to a child
+      // that has it.
+      const inheritsAuthority = agent.authority === "inherit";
       const getActive = (pi as { getActiveTools?: () => string[] }).getActiveTools;
-      const activeTools = typeof getActive === "function" ? getActive.call(pi) : undefined;
+      const activeTools = inheritsAuthority && typeof getActive === "function"
+        ? getActive.call(pi)
+        : undefined;
       const ownRules = activeAgent?.permission ? parsePermissionRules(activeAgent.permission) : [];
-      const parentCeiling = computeDelegationCeiling(activeTools, ownRules.filter(isRestrictive));
-      const parentRules = composeInheritedRules(ownRules, parentInheritedRules(env));
+      const parentCeiling = inheritsAuthority
+        ? computeDelegationCeiling(activeTools, ownRules.filter(isRestrictive))
+        : undefined;
+      const parentRules = inheritsAuthority
+        ? composeInheritedRules(ownRules, parentInheritedRules(env))
+        : [];
 
       const result = await runner({
         agent,

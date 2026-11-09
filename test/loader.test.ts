@@ -188,12 +188,12 @@ Plan body`,
 // ─── Filtering Tests ─────────────────────────────────────────────────────────
 
 const SAMPLE_AGENTS: AgentDefinition[] = [
-  { name: "primary-1", mode: "primary", hidden: false, disable: false, thinking: "off", systemPrompt: "append", maxDepth: 10, prompt: "", source: "global", filePath: "/a.md" },
-  { name: "primary-2", mode: "primary", hidden: false, disable: false, thinking: "off", systemPrompt: "append", maxDepth: 10, prompt: "", source: "global", filePath: "/b.md" },
-  { name: "sub-1", mode: "subagent", hidden: false, disable: false, thinking: "off", systemPrompt: "append", maxDepth: 10, prompt: "", source: "global", filePath: "/c.md" },
-  { name: "sub-2", mode: "subagent", hidden: true, disable: false, thinking: "off", systemPrompt: "append", maxDepth: 10, prompt: "", source: "global", filePath: "/d.md" },
-  { name: "both-1", mode: "all", hidden: false, disable: false, thinking: "off", systemPrompt: "append", maxDepth: 10, prompt: "", source: "global", filePath: "/e.md" },
-  { name: "hidden-primary", mode: "primary", hidden: true, disable: false, thinking: "off", systemPrompt: "append", maxDepth: 10, prompt: "", source: "global", filePath: "/f.md" },
+  { name: "primary-1", mode: "primary", hidden: false, disable: false, thinking: "off", systemPrompt: "append", authority: "standalone", maxDepth: 10, prompt: "", source: "global", filePath: "/a.md" },
+  { name: "primary-2", mode: "primary", hidden: false, disable: false, thinking: "off", systemPrompt: "append", authority: "standalone", maxDepth: 10, prompt: "", source: "global", filePath: "/b.md" },
+  { name: "sub-1", mode: "subagent", hidden: false, disable: false, thinking: "off", systemPrompt: "append", authority: "standalone", maxDepth: 10, prompt: "", source: "global", filePath: "/c.md" },
+  { name: "sub-2", mode: "subagent", hidden: true, disable: false, thinking: "off", systemPrompt: "append", authority: "standalone", maxDepth: 10, prompt: "", source: "global", filePath: "/d.md" },
+  { name: "both-1", mode: "all", hidden: false, disable: false, thinking: "off", systemPrompt: "append", authority: "standalone", maxDepth: 10, prompt: "", source: "global", filePath: "/e.md" },
+  { name: "hidden-primary", mode: "primary", hidden: true, disable: false, thinking: "off", systemPrompt: "append", authority: "standalone", maxDepth: 10, prompt: "", source: "global", filePath: "/f.md" },
 ];
 
 test("selectableAgents: shows primary and all, excludes hidden", () => {

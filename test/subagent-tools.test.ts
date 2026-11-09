@@ -39,6 +39,7 @@ const baseAgent: AgentDefinition = {
   disable: false,
   thinking: "off",
   systemPrompt: "replace",
+  authority: "standalone",
   maxDepth: 1,
   prompt: "You are a worker subagent.",
   source: "project",

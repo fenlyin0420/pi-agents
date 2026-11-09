@@ -5,7 +5,7 @@ import type { AgentDefinition } from "../src/types.ts";
 
 const agent: AgentDefinition = {
   name: "orchestrator", mode: "primary", hidden: false, disable: false,
-  thinking: "off", systemPrompt: "append", maxDepth: 1,
+  thinking: "off", systemPrompt: "append", authority: "standalone", maxDepth: 1,
   prompt: "body", source: "global", filePath: "/pi-global/orchestrator.md",
 };
 

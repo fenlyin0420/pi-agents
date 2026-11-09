@@ -14,6 +14,8 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 
 export type SystemPromptMode = "append" | "replace" | "replace-all";
 
+export type AgentAuthority = "standalone" | "inherit";
+
 export type PermissionAction = "allow" | "deny" | "ask";
 
 export type AgentSource = "global" | "project";
@@ -24,6 +26,10 @@ export const THINKING_LEVELS: readonly ThinkingLevel[] = [
 
 export const SYSTEM_PROMPT_MODES: readonly SystemPromptMode[] = [
   "append", "replace", "replace-all",
+] as const;
+
+export const AGENT_AUTHORITIES: readonly AgentAuthority[] = [
+  "standalone", "inherit",
 ] as const;
 
 export const AGENT_MODES: readonly AgentMode[] = [
@@ -108,6 +114,12 @@ export interface AgentDefinition {
   tools?: string[];
 
   // === Subagent Controls ===
+  /**
+   * (PI) How this agent's tool set and permission rules relate to the agent
+   * that delegated to it. `standalone` (default) = its own definition decides;
+   * `inherit` = capped by the parent's live tool set and deny/ask rules.
+   */
+  authority: AgentAuthority;
   /** (PI) Maximum recursion depth when spawning subagents */
   maxDepth: number;
   /** (PI) Which subagents this agent is allowed to spawn */

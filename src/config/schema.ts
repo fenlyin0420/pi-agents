@@ -13,6 +13,7 @@
  */
 
 import type {
+  AgentAuthority,
   AgentDefinition,
   AgentMode,
   AgentSource,
@@ -22,6 +23,7 @@ import type {
   ThinkingLevel,
 } from "../types.ts";
 import {
+  AGENT_AUTHORITIES,
   AGENT_MODES,
   PERMISSION_ACTIONS,
   SYSTEM_PROMPT_MODES,
@@ -107,6 +109,7 @@ export function parseAgentDefinition(
   const { permission, tools } = parseToolsAndPermission(data);
 
   // ── Subagent controls ──
+  const authority = parseEnum<AgentAuthority>(data.authority, AGENT_AUTHORITIES, "standalone");
   const maxDepth = parseNumber(data.maxDepth, 10);
   const allowedAgents = parseStringArray(data.allowedAgents);
   const skills = parseStringArray(data.skills);
@@ -127,6 +130,7 @@ export function parseAgentDefinition(
     systemPrompt,
     permission,
     tools,
+    authority,
     maxDepth,
     allowedAgents: allowedAgents.length > 0 ? allowedAgents : undefined,
     skills: skills.length > 0 ? skills : undefined,

@@ -19,6 +19,7 @@ const base: AgentDefinition = {
   disable: false,
   thinking: "off",
   systemPrompt: "append",
+  authority: "standalone",
   maxDepth: 1,
   prompt: "body",
   source: "global",

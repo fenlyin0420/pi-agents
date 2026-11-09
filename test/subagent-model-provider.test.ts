@@ -38,6 +38,7 @@ const baseAgent: AgentDefinition = {
   disable: false,
   thinking: "off",
   systemPrompt: "replace",
+  authority: "standalone",
   maxDepth: 1,
   prompt: "You are an explorer subagent.",
   source: "project",
