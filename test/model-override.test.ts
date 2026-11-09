@@ -186,12 +186,19 @@ run("model override: tool omits override when param absent", async () => {
   assert.equal(captured.modelOverride, undefined);
 });
 
-run("model override: malformed model rejected without spawning", async () => {
+run("model override: alias without a slash is accepted and propagated", async () => {
+  const captured: { modelOverride?: string; calls: number } = { calls: 0 };
+  const tool = registerAndGetTool(baseAgent, captured);
+  await tool.execute("call-3", { agent: "worker", task: "hi", model: "sonnet" }, undefined, undefined, CTX);
+  assert.equal(captured.modelOverride, "sonnet", "the child resolves Pi aliases");
+});
+
+run("model override: empty model rejected without spawning", async () => {
   const captured: { modelOverride?: string; calls: number } = { calls: 0 };
   const tool = registerAndGetTool(baseAgent, captured);
   await assert.rejects(
-    () => tool.execute("call-3", { agent: "worker", task: "hi", model: "no-slash" }, undefined, undefined, CTX),
-    /Invalid model "no-slash": expected "provider\/model-id"/,
+    () => tool.execute("call-3b", { agent: "worker", task: "hi", model: " " }, undefined, undefined, CTX),
+    /Invalid model/,
   );
   assert.equal(captured.calls, 0, "runner must not be called on validation failure");
 });

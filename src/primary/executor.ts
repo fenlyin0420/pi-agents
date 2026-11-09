@@ -31,18 +31,23 @@ export function parseModelRef(ref: string): ModelRef | undefined {
 
 /**
  * Apply model override if the agent specifies one.
+ *
+ * The model may be a Pi model alias (settings `modelAliases`, e.g. "sonnet")
+ * or a "provider/modelId" spec; the host registry resolves both.
  */
 async function applyModel(agent: AgentDefinition, pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
   if (!agent.model) return;
 
-  const ref = parseModelRef(agent.model);
-  if (!ref) return;
-
-  const model = ctx.modelRegistry.find(ref.provider, ref.modelId);
+  const resolveSpec = (ctx.modelRegistry as { resolveSpec?: (spec: string) => Model<any> | undefined }).resolveSpec;
+  let model = resolveSpec ? resolveSpec.call(ctx.modelRegistry, agent.model) : undefined;
+  if (!model) {
+    const ref = parseModelRef(agent.model);
+    if (ref) model = ctx.modelRegistry.find(ref.provider, ref.modelId);
+  }
   if (!model) {
     const available = ctx.modelRegistry.getAvailable().map((m: Model<any>) => `${m.provider}/${m.id}`).join(", ");
     ctx.ui.notify(
-      `Agent "${agent.name}": Model ${ref.provider}/${ref.modelId} not found in registry. Available: ${available}`,
+      `Agent "${agent.name}": Model ${agent.model} not found in registry. Available: ${available}`,
       "warning",
     );
     return;
@@ -51,7 +56,7 @@ async function applyModel(agent: AgentDefinition, pi: ExtensionAPI, ctx: Extensi
   const success = await pi.setModel(model);
   if (!success) {
     ctx.ui.notify(
-      `Agent "${agent.name}": No API key for ${ref.provider}/${ref.modelId}`,
+      `Agent "${agent.name}": No API key for ${model.provider}/${model.id}`,
       "warning",
     );
   }

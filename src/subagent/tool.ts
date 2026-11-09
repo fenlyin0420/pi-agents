@@ -80,15 +80,15 @@ function availableAgentsText(agents: AgentDefinition[]): string {
 }
 
 /**
- * Validate a per-call model spec: "provider/model-id".
- *
- * The model id may itself contain slashes — aggregator providers use
- * `vendor/model` ids (e.g. "openrouter/anthropic/claude-opus-5.5"), so the
- * split is on the FIRST slash and only the separator is validated.
+ * Validate a per-call model reference: a Pi model alias ("sonnet") or
+ * "provider/modelId". Model ids may contain slashes (aggregator providers use
+ * `vendor/model` ids), so a reference with a slash must have both halves; a
+ * bare name is an alias and is left to the child process to resolve.
  */
 function isValidModelSpec(spec: string): boolean {
+  if (!spec.trim() || /\s/.test(spec)) return false;
   const slash = spec.indexOf("/");
-  return slash > 0 && slash < spec.length - 1 && !/\s/.test(spec);
+  return slash === -1 || (slash > 0 && slash < spec.length - 1);
 }
 
 // ─── Permission Inheritance (#8) ─────────────────────────────────────────────
@@ -366,7 +366,7 @@ export function registerSubagentTool(
 
       if (params.model !== undefined && !isValidModelSpec(params.model)) {
         throw new Error(
-          `Invalid model "${params.model}": expected "provider/model-id" format (e.g. "anthropic/claude-sonnet-4-5" or "openrouter/anthropic/claude-opus-5.5").`,
+          `Invalid model "${params.model}": expected a model alias or "provider/model-id" (e.g. "sonnet", "anthropic/claude-sonnet-4-5").`,
         );
       }
 
