@@ -30,6 +30,7 @@ import {
   THINKING_LEVELS,
 } from "../types.ts";
 import { parseFrontmatter } from "./frontmatter.ts";
+import { splitModelVariant } from "./model-variant.ts";
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
@@ -91,13 +92,22 @@ export function parseAgentDefinition(
   const description = parseOptionalString(data.description);
 
   // ── Model fields ──
-  const model = parseOptionalString(data.model);
-  const variant = parseOptionalString(data.variant);
+  // A trailing "#variant" is OpenCode syntax, not part of the model id: keep it
+  // as `variant` so the registry gets a model it can resolve (see model-variant.ts).
+  const rawModel = parseOptionalString(data.model);
+  const modelVariant = splitModelVariant(rawModel);
+  const model = modelVariant.model;
+  const variant = parseOptionalString(data.variant) ?? modelVariant.variant;
   const temperature = parseOptionalNumber(data.temperature);
   const topP = parseOptionalNumber(data["top_p"] ?? data.topP);
 
   // ── Execution control ──
-  const thinking = parseEnum<ThinkingLevel>(data.thinking, THINKING_LEVELS, defaults.thinking);
+  // An inline variant names the reasoning level OpenCode would select; an
+  // explicit `thinking:` field still wins over it.
+  const thinking =
+    parseOptionalString(data.thinking) === undefined && modelVariant.thinking
+      ? modelVariant.thinking
+      : parseEnum<ThinkingLevel>(data.thinking, THINKING_LEVELS, defaults.thinking);
   const steps = parseOptionalNumber(data.steps ?? data.maxSteps); // maxSteps is OC alias
   const systemPrompt = parseEnum<SystemPromptMode>(
     data.systemPrompt ?? data["system-prompt"],

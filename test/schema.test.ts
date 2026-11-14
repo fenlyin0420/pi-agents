@@ -229,3 +229,34 @@ test("schema: disabled agents are parseable", () => {
   const agent = parseAgentDefinition(content, "/test.md", "global", DEFAULTS);
   assert.equal(agent.disable, true);
 });
+
+// ─── Model Variants (OpenCode "#variant") ────────────────────────────────────
+
+test("schema: inline #variant is split off the model id", () => {
+  const content = makeContent("name: test\nmodel: opencode-go/deepseek-v4.1-flash#high");
+  const agent = parseAgentDefinition(content, "/test.md", "global", DEFAULTS);
+
+  assert.equal(agent.model, "opencode-go/deepseek-v4.1-flash");
+  assert.equal(agent.variant, "high");
+  assert.equal(agent.thinking, "high");
+});
+
+test("schema: explicit thinking wins over the inline variant", () => {
+  const content = makeContent(
+    "name: test\nmodel: opencode-go/deepseek-v4.1-flash#high\nthinking: low",
+  );
+  const agent = parseAgentDefinition(content, "/test.md", "global", DEFAULTS);
+
+  assert.equal(agent.model, "opencode-go/deepseek-v4.1-flash");
+  assert.equal(agent.variant, "high");
+  assert.equal(agent.thinking, "low");
+});
+
+test("schema: model without a variant keeps the default thinking", () => {
+  const content = makeContent("name: test\nmodel: opencode-go/deepseek-v4.1-flash");
+  const agent = parseAgentDefinition(content, "/test.md", "global", DEFAULTS);
+
+  assert.equal(agent.model, "opencode-go/deepseek-v4.1-flash");
+  assert.equal(agent.variant, undefined);
+  assert.equal(agent.thinking, "xhigh");
+});

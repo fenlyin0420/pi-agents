@@ -22,6 +22,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { AgentDefinition } from "../types.ts";
+import { splitModelVariant } from "../config/model-variant.ts";
 import { byteLength, keepTailByBytes, safeFilePart, truncateHeadContent } from "../utils/format.ts";
 import { buildSubagentPrompt } from "./prompt.ts";
 import { buildSubagentEnv, type SubagentEnvVars } from "./env.ts";
@@ -714,14 +715,17 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
       args.push("--no-context-files");
     }
 
-    // Model: per-call override wins over the agent definition default
-    const modelId = options.modelOverride ?? options.agent.model;
-    if (modelId) {
-      args.push("--model", modelId);
+    // Model: per-call override wins over the agent definition default. An
+    // OpenCode-style "#variant" suffix is split off — pi resolves only the ":"
+    // form, so the raw id would reach the provider and be rejected.
+    const modelRef = splitModelVariant(options.modelOverride ?? options.agent.model);
+    if (modelRef.model) {
+      args.push("--model", modelRef.model);
     }
+    model = modelRef.model ?? options.agent.model;
 
-    // Thinking level
-    args.push("--thinking", options.agent.thinking);
+    // Thinking level: an inline variant wins over the agent's `thinking:` field
+    args.push("--thinking", modelRef.thinking ?? options.agent.thinking);
 
     // Tools whitelist, intersected with the parent's ceiling (#8)
     const childTools = composeChildTools(deriveToolsWhitelist(options.agent), options.parentCeiling);
@@ -764,6 +768,11 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
     const childEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ...buildSubagentEnv(envVars),
+      // Under an Electron host (pi desktop) process.execPath is electron.exe:
+      // without this the child starts a full Electron app that finishes its
+      // turn but never exits, so the runner's `close` event — and with it the
+      // whole delegation — would hang forever.
+      ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
     };
 
     // ── Process JSON events from stdout ──
