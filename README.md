@@ -1,5 +1,6 @@
 # pi-agents
 
+[![npm](https://img.shields.io/npm/v/@fenlyin/pi-agents)](https://www.npmjs.com/package/@fenlyin/pi-agents)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![pi](https://img.shields.io/badge/pi-coding%20agent-blue)](https://pi.dev)
 
@@ -18,14 +19,14 @@ Replaces `pi-agent-mode` + `@johnnywu/pi-subagents` with one coherent plugin.
 ## Quick start
 
 ```bash
-pi install git:github.com/fenlyin0420/pi-agents
+pi install npm:@fenlyin/pi-agents
 ```
 
 `~/.pi/agent/settings.json`:
 
 ```json
 {
-  "packages": ["git:github.com/fenlyin0420/pi-agents"]
+  "packages": ["npm:@fenlyin/pi-agents"]
 }
 ```
 

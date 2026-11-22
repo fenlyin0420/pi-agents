@@ -17,3 +17,5 @@ dist/
 .DS_Store
 Thumbs.db
 bun.lock
+.agents/
+*.tgz
