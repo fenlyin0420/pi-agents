@@ -159,3 +159,42 @@ run("message_end: does not echo the task/toolResult when the final assistant tur
   assert.notEqual(result.output, "RAW FILE CONTENTS", "must not leak raw tool output");
   assert.equal(result.output, "", "no assistant text produced → empty output, not leaked data");
 });
+
+run("message_end: a failed turn is reported instead of \"(no output)\"", async () => {
+  // A provider rejection arrives as an assistant turn with stopReason "error",
+  // no text, and the reason in errorMessage. Before this, the parent's result
+  // was "(no output)" and the reason was only visible in the child's session.
+  const result = await runWith([
+    { type: "session", path: "/s", id: "s1" },
+    { type: "agent_start" },
+    { type: "message_end", message: { role: "user", content: [{ type: "text", text: "Task: read foo" }] } },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        provider: "opencode-go",
+        model: "glm-5.2",
+        content: [],
+        stopReason: "error",
+        errorMessage: '410: {"type":"ModelDeprecated"}',
+      },
+    },
+    { type: "agent_end", messages: [] },
+  ]);
+
+  assert.equal(result.isError, true, "a failed final turn is a failed run");
+  assert.equal(result.output, '410: {"type":"ModelDeprecated"}', "the reason replaces the empty output");
+});
+
+run("message_end: a run that failed after producing text keeps the text and names the error", async () => {
+  const result = await runWith([
+    { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "partial work" }] } },
+    {
+      type: "message_end",
+      message: { role: "assistant", content: [], stopReason: "error", errorMessage: "upstream 502" },
+    },
+  ]);
+
+  assert.equal(result.isError, true);
+  assert.equal(result.output, "partial work\n\n[child stopped with an error: upstream 502]");
+});

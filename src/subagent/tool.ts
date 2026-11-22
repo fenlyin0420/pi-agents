@@ -35,6 +35,7 @@ import {
 } from "./executor.ts";
 import {
   contextUsageSeverity,
+  formatLiveStatus,
   formatSubagentCall,
   formatResultLines,
   formatUsage,
@@ -161,7 +162,7 @@ function toToolResult(result: AgentResult) {
 
 function toProgressResult(progress: AgentProgress) {
   return {
-    content: [{ type: "text" as const, text: liveProgressText(progress.output) }],
+    content: [{ type: "text" as const, text: liveProgressText(progress) }],
     details: progress,
   };
 }
@@ -175,8 +176,18 @@ function toProgressResult(progress: AgentProgress) {
  * against live session JSONL), so the cap only trims live display/RPC traffic:
  * the tail stays (what the child is doing *now*), the head is already in the
  * temp archive. Final results are untouched (see toToolResult).
+ *
+ * A status line sits on top of the tail because the rendered row can be lost:
+ * pi suspends a call past its deadline into a background job, and a job is read
+ * through text (`job {action:"output"}`, the settle notice).
+ *
+ * The run-log path follows the status line for the same reason: the job's text
+ * is how a suspended call is watched, so it has to say where the timeline is.
  */
 export const LIVE_PROGRESS_MAX_BYTES = 2048;
+
+/** Budget for the status line above the tail (see formatLiveStatus). */
+export const LIVE_PROGRESS_STATUS_MAX_BYTES = 256;
 
 /** Tail a string to a byte budget (halving converge, multibyte-safe). */
 export function tailTextByBytes(text: string, maxBytes: number): string {
@@ -190,10 +201,14 @@ export function tailTextByBytes(text: string, maxBytes: number): string {
   return cut;
 }
 
-function liveProgressText(output: string | undefined): string {
-  const text = output || "(running...)";
+function liveProgressText(progress: AgentProgress): string {
+  const status = tailTextByBytes(formatLiveStatus(progress), LIVE_PROGRESS_STATUS_MAX_BYTES);
+  const header =
+    progress.runLogPath === undefined ? status : `${status}\nrun log: ${progress.runLogPath}`;
+  const text = progress.output || "(running...)";
   const tailed = tailTextByBytes(text, LIVE_PROGRESS_MAX_BYTES);
-  return tailed.length < text.length ? `[…earlier live output omitted…]\n${tailed}` : text;
+  const body = tailed.length < text.length ? `[…earlier live output omitted…]\n${tailed}` : text;
+  return `${header}\n\n${body}`;
 }
 
 // ─── Styled Rendering ────────────────────────────────────────────────────────

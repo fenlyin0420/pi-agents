@@ -14,6 +14,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as path from "node:path";
 
 import type { AgentDefinition } from "../src/types.ts";
 import type {
@@ -61,6 +62,14 @@ interface CapturingFs extends ExecutorFs {
   written: Map<string, string>;
   failWrites: boolean;
 }
+
+/**
+ * The archive directory the executor resolves, in this platform's separators.
+ * The executor joins it with `path.join`, so a hard-coded POSIX prefix would
+ * only match on Linux and macOS.
+ */
+const ARCHIVE_DIR = path.join("/fake/archive", "");
+const IN_ARCHIVE = `${ARCHIVE_DIR}${path.sep}`;
 
 function makeFs(): CapturingFs {
   const written = new Map<string, string>();
@@ -153,9 +162,9 @@ run("#32: outcome block becomes the inline result, full text goes to the archive
   });
 
   assert.ok(result.output.startsWith("Outcome: report ready"), `inline must be the outcome, got: ${result.output.slice(0, 60)}`);
-  assert.ok(result.output.includes("Full output: /fake/archive/"), "inline must reference the archive");
+  assert.ok(result.output.includes(`Full output: ${ARCHIVE_DIR}`), "inline must reference the archive");
   assert.ok(!result.output.includes("transcript line 5"), "body must not leak inline");
-  const archives = [...fs.written.entries()].filter(([p]) => p.startsWith("/fake/archive/"));
+  const archives = [...fs.written.entries()].filter(([p]) => p.startsWith(IN_ARCHIVE));
   assert.equal(archives.length, 1, "exactly one archive file");
   assert.equal(archives[0]![1], full, "archive holds the verbatim full output");
 });
@@ -176,8 +185,8 @@ run("#32: missing marker falls back to truncated inline + archive note", async (
   });
 
   assert.ok(result.output.includes("[Output truncated:"), "long output still truncates");
-  assert.ok(result.output.includes("Full output: /fake/archive/"), "note points at the archive");
-  const archives = [...fs.written.entries()].filter(([p]) => p.startsWith("/fake/archive/"));
+  assert.ok(result.output.includes(`Full output: ${ARCHIVE_DIR}`), "note points at the archive");
+  const archives = [...fs.written.entries()].filter(([p]) => p.startsWith(IN_ARCHIVE));
   assert.equal(archives[0]![1], long, "archive holds the full untruncated output");
 });
 
@@ -196,7 +205,7 @@ run("#32: tiny output without marker stays fully inline (plus archive)", async (
   });
 
   assert.equal(result.output, "short answer");
-  assert.equal([...fs.written.entries()].filter(([p]) => p.startsWith("/fake/archive/")).length, 1);
+  assert.equal([...fs.written.entries()].filter(([p]) => p.startsWith(IN_ARCHIVE)).length, 1);
 });
 
 // ─── Commissioned deliverable ────────────────────────────────────────────────
@@ -220,9 +229,10 @@ run("#32: outputPath is injected into the child task and prompt", async () => {
   });
 
   const taskArg = seenArgs[0]!.at(-1)!;
-  assert.ok(taskArg.includes("/proj/report.md"), `task must name the resolved deliverable path, got: ${taskArg.slice(0, 120)}`);
-  const promptFile = fs.written.get("/fake/tmp/system-prompt.md")!;
-  assert.ok(promptFile.includes("`/proj/report.md`"), "system prompt must carry the closing contract with path");
+  const reportPath = path.resolve("/proj", "report.md");
+  assert.ok(taskArg.includes(`Deliverable: save your main deliverable to ${reportPath}`), `task must name the resolved deliverable path, got: ${taskArg.slice(0, 160)}`);
+  const promptFile = fs.written.get(path.join("/fake/tmp", "system-prompt.md"))!;
+  assert.ok(promptFile.includes(`\`${reportPath}\``), "system prompt must carry the closing contract with path");
   assert.ok(promptFile.includes("## Result Contract"), "system prompt must carry the closing contract");
 });
 
@@ -235,7 +245,7 @@ run("#32: archive write failure degrades to inline-only without throwing", async
     // Only the archive write fails — the prompt must still land, otherwise
     // nothing could run at all. That is exactly the production guarantee:
     // a failed temp archive never breaks delegation.
-    if (p.startsWith("/fake/archive/")) throw new Error("disk full");
+    if (p.startsWith(IN_ARCHIVE)) throw new Error("disk full");
     return realWrite(p, content);
   };
   const { runner } = makeRunner([
@@ -282,7 +292,7 @@ run("#32: failing child keeps the error inline", async () => {
 // ─── Live progress cap ─────────────────────────────────────────────────────
 
 run("#32 cap: tailTextByBytes keeps short text, tails long text", () => {
-  const { tailTextByBytes, LIVE_PROGRESS_MAX_BYTES } = toolMod!;
+  const { tailTextByBytes, LIVE_PROGRESS_MAX_BYTES, LIVE_PROGRESS_STATUS_MAX_BYTES } = toolMod!;
   assert.equal(tailTextByBytes("short", LIVE_PROGRESS_MAX_BYTES), "short");
   const long = `${"x".repeat(5000)}-TAIL`;
   const tailed = tailTextByBytes(long, 100);
@@ -292,7 +302,7 @@ run("#32 cap: tailTextByBytes keeps short text, tails long text", () => {
 });
 
 run("#32 cap: live updates carry the tail, final result stays whole", async () => {
-  const { registerSubagentTool } = toolMod!;
+  const { registerSubagentTool, LIVE_PROGRESS_MAX_BYTES, LIVE_PROGRESS_STATUS_MAX_BYTES } = toolMod!;
   const body = Array.from({ length: 200 }, (_, i) => `transcript line ${i} with padding`).join("\n");
   const fullWithOutcome = `${body}\n## Outcome\nOutcome: done\nDetails: fine`;
   const emptyUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0 };
@@ -331,8 +341,13 @@ run("#32 cap: live updates carry the tail, final result stays whole", async () =
   assert.ok(updates.length === 3, `expected 3 live updates, got ${updates.length}`);
   for (const u of updates) {
     assert.ok(
-      u.length <= 2048 + 40,
+      u.length <= LIVE_PROGRESS_MAX_BYTES + LIVE_PROGRESS_STATUS_MAX_BYTES + 40,
       `live update capped, got ${u.length} chars`,
+    );
+    assert.match(
+      u,
+      /^subagent worker · 0 tools · 0s · /,
+      "live update names what is running on top",
     );
   }
   assert.ok(
