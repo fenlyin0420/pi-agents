@@ -1,6 +1,6 @@
 {
   "name": "@fenlyin/pi-agents",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Unified agent and subagent management for pi coding agent, with OpenCode-compatible agent definitions. Fork of pi-open-agents: delegated agents default to standalone authority.",
   "type": "module",
   "license": "MIT",
@@ -41,6 +41,9 @@
     "extensions": [
       "./index.ts"
     ]
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
