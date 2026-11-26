@@ -138,6 +138,35 @@ function formatToolTitle(name: string, args: Record<string, unknown>): string {
 
 // ─── Line Formatting ─────────────────────────────────────────────────────────
 
+/** Cap for the tool title inside {@link formatLiveStatus}; the line stays on one row. */
+const LIVE_STATUS_TOOL_CHARS = 80;
+
+/**
+ * One line naming what the subagent is doing right now.
+ *
+ * The rendered row (see `formatResultLines`) is the primary view, but a caller
+ * can lose the row: pi's tool supervisor suspends a call past its deadline into
+ * a background job, and a job is read through text — `job {action:"output"}`
+ * and the settle notice carry only the tool's streaming content. This line
+ * makes that text say something: who is running, for how long, and which tool
+ * is in flight.
+ */
+export function formatLiveStatus(progress: AgentProgress): string {
+  const parts = [`subagent ${progress.agent}`];
+  const current = [...progress.tools].reverse().find((tool) => tool.status === "running");
+  parts.push(`${progress.tools.length} tool${progress.tools.length === 1 ? "" : "s"}`);
+  parts.push(`${elapsedSeconds(progress.elapsedMs)}s`);
+  if (current) {
+    parts.push(`▸ ${preview(formatToolTitle(current.name, current.args), LIVE_STATUS_TOOL_CHARS)}`);
+    if (progress.status !== "running") parts.push(progress.status);
+  } else if (progress.status === "running") {
+    parts.push("thinking");
+  } else {
+    parts.push(progress.status);
+  }
+  return parts.join(" · ");
+}
+
 function indent(text: string, spaces: number): string {
   const prefix = " ".repeat(spaces);
   return text

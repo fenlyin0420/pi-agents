@@ -8,13 +8,16 @@
 import * as path from "node:path";
 import * as os from "node:os";
 
+/** Path families that can be scanned. */
+export type DiscoveryFamily = "pi" | "opencode" | "shared";
+
 export interface DiscoveryPath {
   /** Absolute directory path to scan */
   dir: string;
   /** Whether this is a global or project-scoped path */
   source: "global" | "project";
   /** Which path family this belongs to */
-  family: "pi" | "opencode" | "shared";
+  family: DiscoveryFamily;
   /**
    * Subdirectory pattern within the dir to scan.
    * If empty, scans the dir directly.
@@ -25,14 +28,27 @@ export interface DiscoveryPath {
 
 // ─── Path Builders ───────────────────────────────────────────────────────────
 
+export interface GetDiscoveryPathsOptions {
+  /**
+   * Restrict discovery to these path families (unknown values are ignored).
+   * Omitted or empty → scan every family.
+   */
+  families?: DiscoveryFamily[];
+}
+
 /**
  * Build all discovery paths for the given cwd and agent dir.
  *
  * @param cwd       Current working directory (project root)
  * @param agentDir  pi agent directory (~/.pi/agent by default)
+ * @param options   Optional family filter (`families: ["pi"]` = pi paths only)
  * @returns Ordered list of paths to scan (global first, then project)
  */
-export function getDiscoveryPaths(cwd: string, agentDir: string): DiscoveryPath[] {
+export function getDiscoveryPaths(
+  cwd: string,
+  agentDir: string,
+  options: GetDiscoveryPathsOptions = {},
+): DiscoveryPath[] {
   const home = os.homedir();
   const opencodeHome = path.join(home, ".opencode");
   const opencodeConfig = path.join(home, ".config", "opencode");
@@ -91,7 +107,11 @@ export function getDiscoveryPaths(cwd: string, agentDir: string): DiscoveryPath[
     subdirs: ["agents"],
   });
 
-  return paths;
+  // Optional family filter: `families: ["pi"]` keeps the pi paths only.
+  const families = options.families?.filter((f, i, all) => all.indexOf(f) === i);
+  if (!families || families.length === 0) return paths;
+
+  return paths.filter((p) => families.includes(p.family));
 }
 
 /**

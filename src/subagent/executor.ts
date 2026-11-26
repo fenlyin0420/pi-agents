@@ -61,6 +61,24 @@ export interface AgentProgress {
   status: "running" | "done" | "error";
   output: string;
   tools: AgentToolLog[];
+  /**
+   * Pid of the child pi process, for hosts that supervise long calls: they
+   * probe the process tree for CPU movement once the call is suspended.
+   * Absent where that evidence would mislead — see PID_EVIDENCE_PLATFORMS.
+   */
+  pid?: number;
+  /**
+   * Whether the child is inside a tool call right now. A host that supervises
+   * long calls must not read a child waiting on its own tool as making no
+   * progress: `npm test` inside the child emits nothing for minutes.
+   */
+  busy?: boolean;
+  /**
+   * Live run log of this delegation: one line per child event, appended while
+   * it runs. A host that suspends the call into a background job loses the
+   * rendered row, and this file is then the only readable timeline.
+   */
+  runLogPath?: string;
   usage: AgentUsage;
   startedAt: number;
   elapsedMs: number;
@@ -89,6 +107,14 @@ export interface ProcessInvocation {
 export interface ProcessHandlers {
   stdout(chunk: string): void;
   stderr(chunk: string): void;
+  /**
+   * Reported once, as soon as the child process exists (undefined when the
+   * spawn failed). A host that supervises long calls — pi's tool supervisor
+   * suspends a call past its deadline into a background job — probes this pid
+   * for CPU movement, so a delegated run that is thinking without emitting
+   * text is not reported as a stalled one.
+   */
+  pid?(pid: number | undefined): void;
 }
 
 export type ProcessRunner = (
@@ -101,6 +127,11 @@ export interface ExecutorFs {
   makeTempDir(prefix: string): Promise<string>;
   writeFile(filePath: string, content: string): Promise<void>;
   removeDir(dir: string): Promise<void>;
+  /**
+   * Append one chunk to the run log. Optional so a fake filesystem can skip it;
+   * the default appends without ever rejecting into the run.
+   */
+  appendFile?(filePath: string, chunk: string): Promise<void>;
 }
 
 export interface RunSubagentOptions {
@@ -139,6 +170,8 @@ export interface RunSubagentOptions {
   runner?: ProcessRunner;
   fs?: ExecutorFs;
   now?: () => number;
+  /** Platform deciding whether pid evidence is published (see PID_EVIDENCE_PLATFORMS). Defaults to process.platform. */
+  platform?: NodeJS.Platform;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -146,6 +179,20 @@ export interface RunSubagentOptions {
 const TASK_FILE_THRESHOLD = 8000;
 const OUTPUT_MAX_BYTES = 50 * 1024;
 const OUTPUT_MAX_LINES = 2000;
+
+/** One field of one run-log line: flattened and capped so a line stays a line. */
+const LOG_FIELD_CHARS = 300;
+
+/**
+ * Platforms where the child pid is worth publishing to a supervising host.
+ *
+ * pi's tool supervisor samples the process tree for CPU movement to tell a
+ * working call from a stalled one. That reading is only sound where the tree
+ * can be sampled at all, and where a waiting child still burns CPU: on Windows
+ * a child blocked on the model response shows none, so pid evidence there
+ * would report a healthy run as stalled and invite the model to kill it.
+ */
+const PID_EVIDENCE_PLATFORMS: ReadonlySet<string> = new Set(["linux", "darwin"]);
 
 // ─── Default FS ──────────────────────────────────────────────────────────────
 
@@ -160,6 +207,9 @@ const defaultExecutorFs: ExecutorFs = {
   },
   async removeDir(dir) {
     await fs.rm(dir, { recursive: true, force: true });
+  },
+  async appendFile(filePath, chunk) {
+    await fs.appendFile(filePath, chunk, { encoding: "utf8", mode: 0o600 });
   },
 };
 
@@ -202,6 +252,17 @@ function deriveToolsWhitelist(agent: AgentDefinition): string[] | undefined {
 
 function emptyUsage(): AgentUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0 };
+}
+
+/** Collapse one value to a single capped line for the run log. */
+function logField(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > LOG_FIELD_CHARS ? `${flat.slice(0, LOG_FIELD_CHARS)}...` : flat;
+}
+
+/** Name a tool call by its command when it has one, else by its args. */
+function logToolArgs(args: Record<string, unknown>): string {
+  return typeof args.command === "string" ? `$ ${logField(args.command)}` : logField(JSON.stringify(args));
 }
 
 /**
@@ -385,6 +446,7 @@ export const defaultRunner: ProcessRunner = (invocation, handlers, signal) =>
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    handlers.pid?.(child.pid);
     child.stdout.on("data", (chunk) => handlers.stdout(String(chunk)));
     child.stderr.on("data", (chunk) => handlers.stderr(String(chunk)));
     child.on("error", reject);
@@ -636,12 +698,46 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
   let stderr = "";
   let model = options.agent.model;
   let stdoutBuffer = "";
+  let childPid: number | undefined;
+  let runLogPath: string | undefined;
+  /** Last `stopReason: "error"` the child reported on an assistant turn. */
+  let assistantError: string | undefined;
+  /** Serializes run-log appends so lines never interleave. */
+  let logChain: Promise<void> = Promise.resolve();
+  const platform = options.platform ?? process.platform;
+
+  // The run log lives beside the output archive, not in tempDir: it must stay
+  // readable after the run ends, including when the call was suspended into a
+  // background job and its row is gone.
+  const runLogFile = path.join(
+    options.outputArchiveDir ?? os.tmpdir(),
+    `${safeFilePart(options.agent.name)}-${startedAt}-run.log`,
+  );
+
+  const stamp = () => `+${((now() - startedAt) / 1000).toFixed(1)}s`;
+
+  /**
+   * Append one line to the run log. Swallows failures: a debug log must never
+   * break a delegation. `runLogPath` is set on the first line so progress only
+   * advertises a file that exists.
+   */
+  const logRun = (line: string) => {
+    const append = fileSystem.appendFile;
+    if (!append) return;
+    runLogPath ??= runLogFile;
+    logChain = logChain
+      .then(() => append.call(fileSystem, runLogFile, `${line}\n`))
+      .catch(() => {});
+  };
 
   const progress = (status: AgentProgress["status"]): AgentProgress => ({
     agent: options.agent.name,
     status,
     output,
     tools: [...tools],
+    ...(childPid === undefined || !PID_EVIDENCE_PLATFORMS.has(platform) ? {} : { pid: childPid }),
+    ...(tools.some((tool) => tool.status === "running") ? { busy: true } : {}),
+    ...(runLogPath === undefined ? {} : { runLogPath }),
     usage: { ...usage },
     startedAt,
     elapsedMs: now() - startedAt,
@@ -664,6 +760,10 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
       deliverablePath !== undefined
         ? `${options.task}\n\nDeliverable: save your main deliverable to ${deliverablePath} and cite it in the outcome block.`
         : options.task;
+
+    logRun(
+      `[${stamp()}] run ${options.agent.name} model=${options.modelOverride ?? options.agent.model ?? "inherit"} cwd=${options.cwd} task=${logField(task)}`,
+    );
 
     // ── Build system prompt ──
     const promptFilePath = path.join(tempDir, "system-prompt.md");
@@ -786,15 +886,18 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
       }
 
       if (event.type === "tool_execution_start") {
+        const name = String(event.toolName ?? "tool");
+        const args =
+          event.args && typeof event.args === "object"
+            ? (event.args as Record<string, unknown>)
+            : {};
         tools.push({
           id: String(event.toolCallId ?? tools.length),
-          name: String(event.toolName ?? "tool"),
-          args:
-            event.args && typeof event.args === "object"
-              ? (event.args as Record<string, unknown>)
-              : {},
+          name,
+          args,
           status: "running",
         });
+        logRun(`[${stamp()}] tool ${name} start ${logToolArgs(args)}`);
         emit();
         return;
       }
@@ -812,6 +915,7 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
         const id = String(event.toolCallId ?? "");
         const tool = tools.find((item) => item.id === id);
         if (tool) tool.status = "done";
+        logRun(`[${stamp()}] tool ${tool?.name ?? id} done`);
         emit();
         return;
       }
@@ -823,7 +927,21 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
         // the subagent output when the final assistant turn has no text part.
         if ((event.message as { role?: unknown }).role === "assistant") {
           const text = textFromMessage(event.message);
-          if (text !== undefined) output = text;
+          if (text !== undefined) {
+            output = text;
+            logRun(`[${stamp()}] assistant: ${logField(text)}`);
+          }
+          // A failed turn is reported by the child as stopReason "error" with
+          // no text at all; without this the parent's result was "(no output)"
+          // and the reason was only visible in the child's session file.
+          if ((event.message as { stopReason?: unknown }).stopReason === "error") {
+            const reported = (event.message as { errorMessage?: unknown }).errorMessage;
+            assistantError =
+              typeof reported === "string" && reported.trim() !== ""
+                ? reported.trim()
+                : "the child stopped with an unspecified model error";
+            logRun(`[${stamp()}] assistant error: ${logField(assistantError)}`);
+          }
           updateUsage(usage, usageFromMessage(event.message, modelRegistry));
           model = modelFromMessage(event.message) ?? model;
         }
@@ -835,6 +953,7 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
         const aggregate = usageFromMessages(event.messages, modelRegistry);
         if (aggregate) replaceUsage(usage, aggregate);
         model = lastAssistantModel(event.messages) ?? model;
+        logRun(`[${stamp()}] agent end`);
         emit();
       }
     };
@@ -851,6 +970,14 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
         },
         stderr(chunk) {
           stderr += chunk;
+          logRun(`[${stamp()}] stderr: ${logField(chunk)}`);
+        },
+        pid(pid) {
+          // No child (spawn error) and second reports change nothing.
+          if (pid === undefined || childPid !== undefined) return;
+          childPid = pid;
+          logRun(`[${stamp()}] child pid=${pid}`);
+          emit();
         },
       },
       options.signal,
@@ -859,10 +986,15 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
     // Process any remaining buffered output
     if (stdoutBuffer.trim()) processLine(stdoutBuffer);
 
-    const isError = exit.exitCode !== 0;
-    if (isError && !output) {
-      output = stderr || `Subagent exited with code ${exit.exitCode}`;
+    // A failed child turn ends the run with the provider's message and nothing
+    // else: report it as the result instead of "(no output)".
+    const isError = exit.exitCode !== 0 || assistantError !== undefined;
+    if (!output) {
+      output = assistantError ?? (isError ? stderr || `Subagent exited with code ${exit.exitCode}` : "");
+    } else if (assistantError !== undefined) {
+      output = `${output}\n\n[child stopped with an error: ${assistantError}]`;
     }
+    logRun(`[${stamp()}] exit code=${exit.exitCode}${assistantError === undefined ? "" : " model error"}`);
 
     // ── Archive full output + derive the inline result (issue #32) ──
     // Every run archives the verbatim output to a temp file; inline the
@@ -908,6 +1040,7 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
     return result;
   } catch (error) {
     output = error instanceof Error ? error.message : String(error);
+    logRun(`[${stamp()}] crashed: ${logField(output)}`);
     return {
       ...progress("error"),
       isError: true,
@@ -915,6 +1048,8 @@ export async function runSubagent(options: RunSubagentOptions): Promise<AgentRes
       stderr,
     };
   } finally {
+    // Let pending log writes land; the file outlives the run.
+    await logChain.catch(() => {});
     await fileSystem.removeDir(tempDir);
   }
 }
