@@ -348,11 +348,39 @@ Agents are loaded from multiple locations (project overrides global by name):
 
 | Path | Scope | Format |
 |------|-------|--------|
-| `~/.pi/agent/agents/*.md` | Global | pi |
-| `~/.opencode/{agent,agents,mode}/*.md` | Global | OpenCode |
-| `.pi/agents/*.md` | Project | pi |
-| `.opencode/{agent,agents,mode}/*.md` | Project | OpenCode |
-| `.agents/agents/*.md` | Project | Shared |
+| `~/.pi/agent/agents/**/*.md` | Global | pi |
+| `~/.config/opencode/{agent,agents,mode,modes}/*.md` | Global | OpenCode |
+| `~/.opencode/{agent,agents,mode,modes}/*.md` | Global | OpenCode |
+| `.pi/agents/**/*.md` | Project | pi |
+| `.opencode/{agent,agents,mode,modes}/*.md` | Project | OpenCode |
+| `.agents/agents/**/*.md` | Project | Shared |
+
+Subdirectories are scanned recursively. `$PI_CODING_AGENT_DIR` (default `~/.pi/agent`)
+moves the pi global root; the OpenCode globals always resolve from your real home dir.
+
+### Restricting discovery (`agentSources`)
+
+By default every family above is scanned. To stop reading other runtimes' definitions,
+list the families you want in `settings.json` — global (`~/.pi/agent/settings.json`) or
+project (`<cwd>/.pi/settings.json`, which wins for that repo):
+
+```json
+{
+  "agentSources": ["pi"]
+}
+```
+
+| `agentSources` | Directories scanned |
+|----------------|---------------------|
+| `["pi"]` | `~/.pi/agent/agents`, `.pi/agents` — **pi definitions only** |
+| `["pi", "shared"]` | pi paths + `.agents/agents` (no OpenCode) |
+| `["opencode"]` | the three OpenCode roots only |
+| omitted / `[]` | all six paths (default) |
+
+Unrecognized entries are ignored with a warning: discovery then keeps the recognized
+ones, or falls back to all families when none are valid. Project settings merge shallowly
+over global ones, so a project `agentSources` replaces the global list rather than
+extending it.
 
 > **⚠️ Migration note (v0.1.22):** discovery in the shared `.agents/` directory is now
 > scoped to `​.agents/agents/*.md` — previously *every* markdown file under `.agents/`

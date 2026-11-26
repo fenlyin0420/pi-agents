@@ -10,7 +10,7 @@ import * as path from "node:path";
 
 import type { AgentDefinition, AgentFs, AgentLoadResult } from "../types.ts";
 import type { SchemaDefaults } from "../config/schema.ts";
-import type { DiscoveryPath } from "../config/paths.ts";
+import type { DiscoveryFamily, DiscoveryPath } from "../config/paths.ts";
 import { deriveAgentName, getDiscoveryPaths } from "../config/paths.ts";
 import { parseAgentDefinition } from "../config/schema.ts";
 import { SCHEMA_DEFAULTS } from "../config/schema.ts";
@@ -68,6 +68,12 @@ export interface LoadAgentsOptions {
   fs?: AgentFs;
   /** Custom discovery paths (overrides auto-detection). */
   paths?: DiscoveryPath[];
+  /**
+   * Restrict auto-detected discovery to these path families
+   * (e.g. `["pi"]` = only ~/.pi/agent/agents and .pi/agents).
+   * Ignored when `paths` is provided. Omitted/empty → all families.
+   */
+  families?: DiscoveryFamily[];
 }
 
 // ─── Main Loader ─────────────────────────────────────────────────────────────
@@ -85,7 +91,7 @@ export async function loadAgents(options: LoadAgentsOptions = {}): Promise<Agent
   const defaults = options.defaults ?? SCHEMA_DEFAULTS;
 
   // Build discovery paths
-  const paths = options.paths ?? getDiscoveryPaths(cwd, agentDir);
+  const paths = options.paths ?? getDiscoveryPaths(cwd, agentDir, { families: options.families });
 
   // Scan each path, collecting agents grouped by source
   const globalAgents = new Map<string, AgentDefinition>();

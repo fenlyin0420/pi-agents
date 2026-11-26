@@ -31,10 +31,50 @@ import { registerPermissionGate } from "./permission/gate.ts";
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 
+/** Path families that `agentSources` can enable. */
+const AGENT_SOURCES = ["pi", "opencode", "shared"] as const;
+
+type AgentSource = (typeof AGENT_SOURCES)[number];
+
 interface Settings {
   defaultAgent?: string;
   defaultThinkingLevel?: ThinkingLevel;
   showAgentDescription?: boolean;
+  /**
+   * Restrict agent discovery to these path families. Default: all of them.
+   *
+   *   "pi"       → ~/.pi/agent/agents + .pi/agents
+   *   "opencode" → ~/.config/opencode, ~/.opencode, .opencode ({agent,agents,mode,modes})
+   *   "shared"   → .agents/agents
+   *
+   * Example: ["pi"] reads pi-owned definitions only.
+   */
+  agentSources?: AgentSource[];
+}
+
+/**
+ * Validate the `agentSources` setting.
+ *
+ * Returns the recognized families (`undefined` = scan everything) plus any
+ * unrecognized entries, so the caller can surface them as a warning instead of
+ * silently scanning nothing.
+ */
+function parseAgentSources(raw: unknown): { families?: AgentSource[]; invalid: string[] } {
+  if (raw === undefined || raw === null) return { invalid: [] };
+  if (!Array.isArray(raw)) return { invalid: [JSON.stringify(raw)] };
+
+  const invalid: string[] = [];
+  const families: AgentSource[] = [];
+
+  for (const entry of raw) {
+    if (typeof entry === "string" && (AGENT_SOURCES as readonly string[]).includes(entry)) {
+      if (!families.includes(entry as AgentSource)) families.push(entry as AgentSource);
+    } else {
+      invalid.push(JSON.stringify(entry));
+    }
+  }
+
+  return { families: families.length > 0 ? families : undefined, invalid };
 }
 
 function loadSettings(cwd: string): Settings {
@@ -78,11 +118,23 @@ export default function piOpenAgents(pi: ExtensionAPI): void {
     const settings = loadSettings(ctx.cwd);
     setShowAgentDescription(settings.showAgentDescription);
 
+    // Optional discovery restriction (settings.agentSources).
+    const agentSources = parseAgentSources(settings.agentSources);
+    if (agentSources.invalid.length > 0) {
+      const scanned = agentSources.families ? agentSources.families.join(", ") : "all sources";
+      ctx.ui.notify(
+        `settings.json: ignored invalid agentSources ${agentSources.invalid.join(", ")} ` +
+          `(valid: ${AGENT_SOURCES.join(", ")}; scanning ${scanned})`,
+        "warning",
+      );
+    }
+
     // Load all agent definitions from discovery paths
     const result = await loadAgents({
       cwd: ctx.cwd,
       agentDir: getAgentDir(),
       defaults: { thinking: settings.defaultThinkingLevel ?? "off" },
+      families: agentSources.families,
     });
 
     // Log any parse warnings
